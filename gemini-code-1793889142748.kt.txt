@@ -1,0 +1,92 @@
+package com.example.smsthroughinternet
+
+import android.os.Bundle
+import android.widget.Button
+import android.widget.EditText
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import kotlinx.coroutines.*
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.Body
+import retrofit2.http.POST
+import retrofit2.Response
+
+// Data models for the API request and response
+data class SmsRequest(val toNumber: String, val message: String)
+data class SmsResponse(val success: Boolean, val message: String)
+
+// Retrofit API Service Interface
+interface SmsApiService {
+    @POST("api/v1/send-sms")
+    suspend fun sendSms(@Body request: SmsRequest): Response<SmsResponse>
+}
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var etPhoneNumber: EditText
+    private lateinit var etMessageBody: EditText
+    private lateinit var btnSendSMS: Button
+
+    // Coroutine scope for background network operations
+    private val job = Job()
+    private val scope = CoroutineScope(Dispatchers.Main + job)
+
+    // Initialize Retrofit client (Replace with your actual backend URL or SMS gateway base URL)
+    private val retrofit = Retrofit.Builder()
+        .baseUrl("https://your-backend-server.com/")
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+    private val apiService = retrofit.create(SmsApiService::class.java)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        etPhoneNumber = findViewById(R.id.etPhoneNumber)
+        etMessageBody = findViewById(R.id.etMessageBody)
+        btnSendSMS = findViewById(R.id.btnSendSMS)
+
+        btnSendSMS.setOnClickListener {
+            val phone = etPhoneNumber.text.toString().trim()
+            val message = etMessageBody.text.toString().trim()
+
+            if (phone.isNotEmpty() && message.isNotEmpty()) {
+                sendSmsOverInternet(phone, message)
+            } else {
+                Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun sendSmsOverInternet(phone: String, message: String) {
+        btnSendSMS.isEnabled = false
+        scope.launch(Dispatchers.IO) {
+            try {
+                val request = SmsRequest(toNumber = phone, message = message)
+                val response = apiService.sendSms(request)
+
+                withContext(Dispatchers.Main) {
+                    btnSendSMS.isEnabled = true
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        Toast.makeText(this@MainActivity, "SMS sent successfully!", Toast.LENGTH_LONG).show()
+                        etMessageBody.text.clear()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Failed to send SMS: ${response.errorBody()?.string()}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    btnSendSMS.isEnabled = true
+                    Toast.makeText(this@MainActivity, "Error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        job.cancel()
+    }
+}
